@@ -23,7 +23,6 @@ if (!$curl) {
 $root = "c:\[-]"
 $office = "c:\office"
 $temp = join-path $env:temp "matty-$pid"
-$releaseurl = "https://api.github.com/repos/mattywashere/files/releases/latest"
 
 $downloaderrors = @{}
 
@@ -113,30 +112,6 @@ function show-status($states, $selected, $message = "") {
 
     write-host ""
     write-rule
-}
-
-function get-release {
-    if (!$script:release) {
-        $script:release = invoke-restmethod $releaseurl -headers @{"user-agent"="powershell"}
-    }
-
-    return $script:release
-}
-
-function get-portable($name, $pattern) {
-    $release = get-release
-    $asset = $release.assets | where-object { $_.name -match $pattern } | select-object -first 1
-
-    if (!$asset) {
-        throw "release asset not found for $name"
-    }
-
-    return [pscustomobject]@{
-        name = $name
-        file = $asset.name
-        url = $asset.browser_download_url
-        path = (join-path $temp $asset.name)
-    }
 }
 
 function download-parallel($downloads, $states, $selected) {
@@ -437,39 +412,39 @@ try {
     show-status $states $selected "preparing..."
 
     if ($selected -contains 1) {
-        try {
-            $package = get-portable "obs" "(?i)^obs.*\.(zip|7z)$"
-            $portables += [pscustomobject]@{ number = 1; package = $package }
-            $downloads += [pscustomobject]@{ number = 1; name = "obs"; url = $package.url; path = $package.path }
+        $package = [pscustomobject]@{
+            name = "obs"
+            file = "obs.zip"
+            url = "https://github.com/mattywashere/files/releases/latest/download/obs.zip"
+            path = (join-path $temp "obs.zip")
         }
-        catch {
-            $states[1] = "failed"
-            $failed += 1
-        }
+
+        $portables += [pscustomobject]@{ number = 1; package = $package }
+        $downloads += [pscustomobject]@{ number = 1; name = "obs"; url = $package.url; path = $package.path }
     }
 
     if ($selected -contains 2) {
-        try {
-            $package = get-portable "mpv" "(?i)^mpv.*\.(zip|7z)$"
-            $portables += [pscustomobject]@{ number = 2; package = $package }
-            $downloads += [pscustomobject]@{ number = 2; name = "mpv"; url = $package.url; path = $package.path }
+        $package = [pscustomobject]@{
+            name = "mpv"
+            file = "mpv.zip"
+            url = "https://github.com/mattywashere/files/releases/latest/download/mpv.zip"
+            path = (join-path $temp "mpv.zip")
         }
-        catch {
-            $states[2] = "failed"
-            $failed += 2
-        }
+
+        $portables += [pscustomobject]@{ number = 2; package = $package }
+        $downloads += [pscustomobject]@{ number = 2; name = "mpv"; url = $package.url; path = $package.path }
     }
 
     if ($selected -contains 3) {
-        try {
-            $package = get-portable "losslesscut" "(?i)^lossless[.\s_-]*cut.*\.(zip|7z)$"
-            $portables += [pscustomobject]@{ number = 3; package = $package }
-            $downloads += [pscustomobject]@{ number = 3; name = "losslesscut"; url = $package.url; path = $package.path }
+        $package = [pscustomobject]@{
+            name = "losslesscut"
+            file = "losslesscut.zip"
+            url = "https://github.com/mattywashere/files/releases/latest/download/losslesscut.zip"
+            path = (join-path $temp "losslesscut.zip")
         }
-        catch {
-            $states[3] = "failed"
-            $failed += 3
-        }
+
+        $portables += [pscustomobject]@{ number = 3; package = $package }
+        $downloads += [pscustomobject]@{ number = 3; name = "losslesscut"; url = $package.url; path = $package.path }
     }
 
     if ($selected -contains 8) {
