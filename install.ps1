@@ -278,7 +278,12 @@ function install-portable($package, $number, $states, $selected) {
         remove-item -literalpath $stage -recurse -force
     }
 
+    if (test-path -literalpath $target) {
+        remove-item -literalpath $target -recurse -force
+    }
+
     [io.directory]::createdirectory($stage) | out-null
+    [io.directory]::createdirectory($target) | out-null
 
     if ($package.file -match "\.zip$") {
         & tar.exe -xf $archive -C $stage *> $null
@@ -300,32 +305,27 @@ function install-portable($package, $number, $states, $selected) {
         throw "unsupported archive: $($package.file)"
     }
 
-    if (test-path -literalpath $target) {
-        remove-item -literalpath $target -recurse -force
-    }
-
     $items = @(get-childitem -literalpath $stage -force)
 
     if (!$items.count) {
         throw "$($package.file) extracted no files"
     }
 
+    $source = $stage
+
     if ($items.count -eq 1 -and $items[0].psiscontainer) {
-        [io.directory]::move($items[0].fullname, $target)
+        $source = $items[0].fullname
     }
-    else {
-        [io.directory]::createdirectory($target) | out-null
 
-        foreach ($item in $items) {
-            $destination = [io.path]::combine($target, $item.name)
+    & robocopy.exe $source $target /e /move /r:1 /w:1 /nfl /ndl /njh /njs /np *> $null
+    $code = $lastexitcode
 
-            if ($item.psiscontainer) {
-                [io.directory]::move($item.fullname, $destination)
-            }
-            else {
-                [io.file]::move($item.fullname, $destination)
-            }
-        }
+    if ($code -ge 8) {
+        throw "robocopy failed with exit code $code"
+    }
+
+    if (test-path -literalpath $stage) {
+        remove-item -literalpath $stage -recurse -force -erroraction silentlycontinue
     }
 
     $states[$number] = "done"
