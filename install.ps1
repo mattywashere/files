@@ -28,6 +28,7 @@ $temp = join-path $env:temp "matty-$pid"
 
 $downloaderrors = @{}
 $installerrors = @{}
+$locations = @{}
 
 $names = @{
     1 = "obs"
@@ -328,6 +329,7 @@ function install-portable($package, $number, $states, $selected) {
         remove-item -literalpath $stage -recurse -force -erroraction silentlycontinue
     }
 
+    $script:locations[$number] = $target
     $states[$number] = "done"
     show-status $states $selected "installing selected apps..."
 }
@@ -355,7 +357,51 @@ function set-obs-startup {
     }
 }
 
-function install-winget($name, $id, $number, $states, $selected) {
+function get-app-location($patterns, $fallbacks) {
+    foreach ($path in $fallbacks) {
+        if ($path -and (test-path -literalpath $path)) {
+            return $path
+        }
+    }
+
+    $keys = @(
+        "hklm:\software\microsoft\windows\currentversion\uninstall\*",
+        "hklm:\software\wow6432node\microsoft\windows\currentversion\uninstall\*",
+        "hkcu:\software\microsoft\windows\currentversion\uninstall\*"
+    )
+
+    foreach ($key in $keys) {
+        $apps = get-itemproperty $key -erroraction silentlycontinue
+
+        foreach ($app in $apps) {
+            if (!$app.displayname) {
+                continue
+            }
+
+            foreach ($pattern in $patterns) {
+                if ($app.displayname -match $pattern) {
+                    if ($app.installlocation -and (test-path -literalpath $app.installlocation)) {
+                        return $app.installlocation.trimend("\")
+                    }
+
+                    if ($app.displayicon) {
+                        $icon = [string]$app.displayicon
+                        $icon = $icon.trim('"')
+                        $icon = ($icon -split ",")[0]
+
+                        if (test-path -literalpath $icon) {
+                            return (split-path -literalpath $icon -parent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return "installed (location not reported)"
+}
+
+function install-winget($name, $id, $number, $states, $selected, $patterns, $fallbacks) {
     if (!(get-command winget.exe -erroraction silentlycontinue)) {
         throw "winget is not installed"
     }
@@ -369,6 +415,7 @@ function install-winget($name, $id, $number, $states, $selected) {
         throw "$name install failed"
     }
 
+    $script:locations[$number] = get-app-location $patterns $fallbacks
     $states[$number] = "done"
     show-status $states $selected "installing selected apps..."
 }
@@ -389,6 +436,22 @@ function install-office($states, $selected) {
 
     if ($process.exitcode) {
         throw "office install failed with exit code $($process.exitcode)"
+    }
+
+    $officepaths = @(
+        "$env:programfiles\microsoft office\root\office16",
+        "${env:programfiles(x86)}\microsoft office\root\office16",
+        "$env:programfiles\microsoft office",
+        "${env:programfiles(x86)}\microsoft office"
+    )
+
+    $officepath = $officepaths | where-object { $_ -and (test-path -literalpath $_) } | select-object -first 1
+
+    if ($officepath) {
+        $script:locations[8] = $officepath
+    }
+    else {
+        $script:locations[8] = "$office (deployment files)"
     }
 
     $states[8] = "done"
@@ -537,7 +600,7 @@ try {
 
     if ($selected -contains 4) {
         try {
-            install-winget "everything" "voidtools.Everything" 4 $states $selected
+            install-winget "everything" "voidtools.Everything" 4 $states $selected @("^Everything") @("$env:programfiles\Everything", "${env:programfiles(x86)}\Everything")
         }
         catch {
             $states[4] = "failed"
@@ -548,7 +611,7 @@ try {
 
     if ($selected -contains 5) {
         try {
-            install-winget "bulk crap uninstaller" "Klocman.BulkCrapUninstaller" 5 $states $selected
+            install-winget "bulk crap uninstaller" "Klocman.BulkCrapUninstaller" 5 $states $selected @("Bulk Crap Uninstaller", "BCUninstaller") @("$env:programfiles\BCUninstaller", "${env:programfiles(x86)}\BCUninstaller")
         }
         catch {
             $states[5] = "failed"
@@ -559,7 +622,7 @@ try {
 
     if ($selected -contains 6) {
         try {
-            install-winget "greenshot" "Greenshot.Greenshot" 6 $states $selected
+            install-winget "greenshot" "Greenshot.Greenshot" 6 $states $selected @("^Greenshot") @("$env:programfiles\Greenshot", "${env:programfiles(x86)}\Greenshot")
         }
         catch {
             $states[6] = "failed"
@@ -570,7 +633,7 @@ try {
 
     if ($selected -contains 7) {
         try {
-            install-winget "notepad++" "Notepad++.Notepad++" 7 $states $selected
+            install-winget "notepad++" "Notepad++.Notepad++" 7 $states $selected @("Notepad\+\+") @("$env:programfiles\Notepad++", "${env:programfiles(x86)}\Notepad++")
         }
         catch {
             $states[7] = "failed"
@@ -633,6 +696,17 @@ if ($failed.count) {
 }
 else {
     show-status $states $selected "finished"
+}
+
+if ($locations.count) {
+    write-host ""
+    write-host "installed to"
+
+    foreach ($number in ($selected | sort-object)) {
+        if ($locations.containskey($number)) {
+            write-host ("  {0}: {1}" -f $names[$number], $locations[$number])
+        }
+    }
 }
 
 write-host ""
