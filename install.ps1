@@ -80,6 +80,9 @@ function show-menu {
     write-rule
     write-host "[a] all    [q] quit"
     write-host ""
+    write-host "tip: to install more than one item, separate the numbers with commas."
+    write-host "example: 1,2,7 installs obs, mpv, and notepad++."
+    write-host ""
 }
 
 function show-status($states, $selected, $message = "") {
