@@ -20,9 +20,11 @@ if (!$curl) {
     throw "curl.exe not found"
 }
 
-$root = "c:\[-]"
+$root = "c:\matt files"
 $office = "c:\office"
 $temp = join-path $env:temp "matty-$pid"
+
+[io.directory]::createdirectory($root) | out-null
 
 $downloaderrors = @{}
 $installerrors = @{}
@@ -266,6 +268,8 @@ function install-portable($package, $number, $states, $selected) {
     $archive = $package.path
     $stage = join-path $temp "$name-stage"
     $target = join-path $root $name
+
+    [io.directory]::createdirectory($root) | out-null
 
     $states[$number] = "extracting"
     show-status $states $selected "installing selected apps..."
