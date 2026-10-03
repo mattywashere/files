@@ -709,5 +709,12 @@ if ($script:locations.count) {
     }
 }
 
+if (($selected -contains 1) -and ($states[1] -eq "done")) {
+    write-host ""
+    write-host "obs note"
+    write-host "  obs is running in the system tray."
+    write-host "  obs will start automatically every time you sign in to windows."
+}
+
 write-host ""
 read-host "press enter to exit"
