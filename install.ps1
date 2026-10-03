@@ -25,6 +25,7 @@ $office = "c:\office"
 $temp = join-path $env:temp "matty-$pid"
 
 $downloaderrors = @{}
+$installerrors = @{}
 
 $names = @{
     1 = "obs"
@@ -276,12 +277,18 @@ function install-portable($package, $number, $states, $selected) {
     [io.directory]::createdirectory($stage) | out-null
 
     if ($package.file -match "\.zip$") {
-        expand-archive -literalpath $archive -destinationpath $stage -force
+        & tar.exe -xf $archive -C $stage *> $null
+
+        if ($lastexitcode -ne 0) {
+            remove-item -literalpath $stage -recurse -force -erroraction silentlycontinue
+            [io.directory]::createdirectory($stage) | out-null
+            expand-archive -literalpath $archive -destinationpath $stage -force
+        }
     }
     elseif ($package.file -match "\.7z$") {
-        & tar.exe -xf $archive -c $stage *> $null
+        & tar.exe -xf $archive -C $stage *> $null
 
-        if ($lastexitcode) {
+        if ($lastexitcode -ne 0) {
             throw "failed to extract $($package.file)"
         }
     }
@@ -295,12 +302,26 @@ function install-portable($package, $number, $states, $selected) {
 
     $items = @(get-childitem -literalpath $stage -force)
 
+    if (!$items.count) {
+        throw "$($package.file) extracted no files"
+    }
+
     if ($items.count -eq 1 -and $items[0].psiscontainer) {
-        move-item -literalpath $items[0].fullname -destination $target
+        [io.directory]::move($items[0].fullname, $target)
     }
     else {
         [io.directory]::createdirectory($target) | out-null
-        $items | move-item -destination $target -force
+
+        foreach ($item in $items) {
+            $destination = [io.path]::combine($target, $item.name)
+
+            if ($item.psiscontainer) {
+                [io.directory]::move($item.fullname, $destination)
+            }
+            else {
+                [io.file]::move($item.fullname, $destination)
+            }
+        }
     }
 
     $states[$number] = "done"
@@ -500,6 +521,7 @@ try {
         }
         catch {
             $states[$number] = "failed"
+            $script:installerrors[$package.name] = $_.exception.message
 
             if ($failed -notcontains $number) {
                 $failed += $number
@@ -581,6 +603,21 @@ if ($failed.count) {
 
         foreach ($key in $downloaderrors.keys) {
             $message = [string]$downloaderrors[$key]
+
+            if ($message.length -gt 180) {
+                $message = $message.substring(0, 177) + "..."
+            }
+
+            write-host "  $key`: $message"
+        }
+    }
+
+    if ($installerrors.count) {
+        write-host ""
+        write-host "install errors"
+
+        foreach ($key in $installerrors.keys) {
+            $message = [string]$installerrors[$key]
 
             if ($message.length -gt 180) {
                 $message = $message.substring(0, 177) + "..."
