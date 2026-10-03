@@ -451,7 +451,11 @@ function install-office($states, $selected) {
         $script:locations[8] = $officepath
     }
     else {
-        $script:locations[8] = "$office (deployment files)"
+        $script:locations[8] = "installed (location not reported)"
+    }
+
+    if (test-path -literalpath $office) {
+        remove-item -literalpath $office -recurse -force
     }
 
     $states[8] = "done"
