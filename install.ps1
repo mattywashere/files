@@ -26,9 +26,9 @@ $temp = join-path $env:temp "matty-$pid"
 
 [io.directory]::createdirectory($root) | out-null
 
-$downloaderrors = @{}
-$installerrors = @{}
-$locations = @{}
+$script:downloaderrors = @{}
+$script:installerrors = @{}
+$script:locations = @{}
 
 $names = @{
     1 = "obs"
@@ -664,12 +664,12 @@ $failed = @($failed | sort-object -unique)
 if ($failed.count) {
     show-status $states $selected "finished with $($failed.count) failure(s)"
 
-    if ($downloaderrors.count) {
+    if ($script:downloaderrors.count) {
         write-host ""
         write-host "download errors"
 
-        foreach ($key in $downloaderrors.keys) {
-            $message = [string]$downloaderrors[$key]
+        foreach ($key in $script:downloaderrors.keys) {
+            $message = [string]$script:downloaderrors[$key]
 
             if ($message.length -gt 180) {
                 $message = $message.substring(0, 177) + "..."
@@ -679,12 +679,12 @@ if ($failed.count) {
         }
     }
 
-    if ($installerrors.count) {
+    if ($script:installerrors.count) {
         write-host ""
         write-host "install errors"
 
-        foreach ($key in $installerrors.keys) {
-            $message = [string]$installerrors[$key]
+        foreach ($key in $script:installerrors.keys) {
+            $message = [string]$script:installerrors[$key]
 
             if ($message.length -gt 180) {
                 $message = $message.substring(0, 177) + "..."
@@ -698,13 +698,13 @@ else {
     show-status $states $selected "finished"
 }
 
-if ($locations.count) {
+if ($script:locations.count) {
     write-host ""
     write-host "installed to"
 
     foreach ($number in ($selected | sort-object)) {
-        if ($locations.containskey($number)) {
-            write-host ("  {0}: {1}" -f $names[$number], $locations[$number])
+        if ($script:locations.containskey($number)) {
+            write-host ("  {0}: {1}" -f $names[$number], $script:locations[$number])
         }
     }
 }
