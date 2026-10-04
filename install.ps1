@@ -39,6 +39,7 @@ $names = @{
     6 = "greenshot"
     7 = "notepad++"
     8 = "office"
+    9 = "visual c++ redistributables"
 }
 
 function get-width {
@@ -76,6 +77,9 @@ function show-menu {
     write-host "  [6] greenshot"
     write-host "  [7] notepad++"
     write-host "  [8] office"
+    write-host ""
+    write-host "runtimes"
+    write-host "  [9] visual c++ redistributables (2005-2026)"
     write-host ""
     write-rule
     write-host "[a] all    [q] quit"
@@ -465,6 +469,41 @@ function install-office($states, $selected) {
     show-status $states $selected "installing selected apps..."
 }
 
+
+function install-redists($redists, $states, $selected) {
+    $items = @(
+        $redists | where-object {
+            $_.arch -eq "any" -or [environment]::is64bitoperatingsystem
+        }
+    )
+
+    $total = $items.count
+    $index = 0
+    $warnings = @()
+
+    foreach ($item in $items) {
+        $index++
+        $states[9] = "installing $index/$total"
+        show-status $states $selected "installing visual c++ redistributables..."
+
+        $process = start-process $item.path -argumentlist $item.args -wait -passthru -windowstyle hidden
+        $code = $process.exitcode
+
+        if ($code -notin @(0, 3010, 1641, 1638, -2147023258)) {
+            $warnings += "$($item.name) returned exit code $code"
+        }
+    }
+
+    if ($warnings.count) {
+        throw ($warnings -join "; ")
+    }
+
+    $script:locations[9] = "system-wide (visual c++ runtime components)"
+    $states[9] = "done"
+    show-status $states $selected "installing selected apps..."
+}
+
+
 show-menu
 $choice = (read-host "selection").trim().tolower()
 
@@ -473,13 +512,13 @@ if ($choice -eq "q") {
 }
 
 if ($choice -eq "a") {
-    $selected = 1..8
+    $selected = 1..9
 }
 else {
     $selected = @(
         $choice -split "," |
         foreach-object { $_.trim() } |
-        where-object { $_ -match "^[1-8]$" } |
+        where-object { $_ -match "^[1-9]$" } |
         foreach-object { [int]$_ } |
         sort-object -unique
     )
@@ -505,6 +544,45 @@ foreach ($number in $selected) {
 
 try {
     show-status $states $selected "preparing..."
+
+    $redists = @()
+
+    if ($selected -contains 9) {
+        $redisttemp = join-path $temp "redist"
+        [io.directory]::createdirectory($redisttemp) | out-null
+
+        $redists = @(
+            [pscustomobject]@{ name = "vc++ 2005 x86"; file = "vcredist2005_x86.exe"; args = "/q"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ 2005 x64"; file = "vcredist2005_x64.exe"; args = "/q"; arch = "x64" }
+            [pscustomobject]@{ name = "vc++ 2008 x86"; file = "vcredist2008_x86.exe"; args = "/q"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ 2008 x64"; file = "vcredist2008_x64.exe"; args = "/q"; arch = "x64" }
+            [pscustomobject]@{ name = "vc++ 2010 x86"; file = "vcredist2010_x86.exe"; args = "/quiet /norestart"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ 2010 x64"; file = "vcredist2010_x64.exe"; args = "/quiet /norestart"; arch = "x64" }
+            [pscustomobject]@{ name = "vc++ 2012 x86"; file = "vcredist2012_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ 2012 x64"; file = "vcredist2012_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+            [pscustomobject]@{ name = "vc++ 2013 x86"; file = "vcredist2013_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ 2013 x64"; file = "vcredist2013_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+            [pscustomobject]@{ name = "vc++ v14 x86"; file = "vcredist_v14.x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+            [pscustomobject]@{ name = "vc++ v14 x64"; file = "vcredist_v14.x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+        )
+
+        $states[9] = "downloading"
+
+        foreach ($item in $redists) {
+            if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
+                continue
+            }
+
+            $item | add-member -notepropertyname path -notepropertyvalue (join-path $redisttemp $item.file)
+
+            $downloads += [pscustomobject]@{
+                number = $null
+                name = "redist-$($item.file)"
+                url = "https://raw.githubusercontent.com/mattywashere/files/main/redist/$($item.file)"
+                path = $item.path
+            }
+        }
+    }
 
     if ($selected -contains 1) {
         $package = [pscustomobject]@{
@@ -572,6 +650,29 @@ try {
         }
     }
 
+    if ($selected -contains 9) {
+        $redistok = $true
+
+        foreach ($item in $redists) {
+            if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
+                continue
+            }
+
+            if (!$downloadstatus["redist-$($item.file)"]) {
+                $redistok = $false
+                break
+            }
+        }
+
+        if ($redistok) {
+            $states[9] = "downloaded"
+        }
+        else {
+            $states[9] = "failed"
+            $failed += 9
+        }
+    }
+
     foreach ($entry in $portables) {
         $number = $entry.number
         $package = $entry.package
@@ -601,6 +702,18 @@ try {
                 $failed += $number
             }
 
+            show-status $states $selected "installing selected apps..."
+        }
+    }
+
+    if (($selected -contains 9) -and ($failed -notcontains 9)) {
+        try {
+            install-redists $redists $states $selected
+        }
+        catch {
+            $states[9] = "failed"
+            $script:installerrors["visual c++ redistributables"] = $_.exception.message
+            $failed += 9
             show-status $states $selected "installing selected apps..."
         }
     }
