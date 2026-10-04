@@ -129,6 +129,39 @@ function show-status($states, $selected, $message = "") {
 }
 
 
+function set-download-speed($mbps) {
+    if (!$script:speedtext) {
+        return
+    }
+
+    if ($null -eq $mbps) {
+        $script:speedtext.text = ""
+        $script:speedtext.visibility = "Collapsed"
+    }
+    else {
+        $script:speedtext.text = ("{0:N2} MB/s" -f $mbps)
+        $script:speedtext.visibility = "Visible"
+    }
+
+    do-events
+}
+
+function get-download-bytes($downloads) {
+    [int64]$bytes = 0
+
+    foreach ($download in $downloads) {
+        if (test-path -literalpath $download.path) {
+            try {
+                $bytes += (get-item -literalpath $download.path -erroraction stop).length
+            }
+            catch {}
+        }
+    }
+
+    return $bytes
+}
+
+
 function download-parallel($downloads, $states, $selected) {
     $status = @{}
 
@@ -138,6 +171,12 @@ function download-parallel($downloads, $states, $selected) {
 
     $jobs = @()
     $handled = @{}
+
+    [int64]$lastbytes = 0
+    $lastsample = [datetime]::utcnow
+    [double]$smoothedspeed = 0
+
+    set-download-speed 0
 
     try {
         foreach ($download in $downloads) {
@@ -206,6 +245,26 @@ function download-parallel($downloads, $states, $selected) {
             show-status $states $selected "downloading selected files..."
             start-sleep -milliseconds 300
 
+            $now = [datetime]::utcnow
+            $bytes = get-download-bytes $downloads
+            $seconds = ($now - $lastsample).totalSeconds
+
+            if ($seconds -gt 0) {
+                $delta = [math]::max(0, ($bytes - $lastbytes))
+                $instant = ($delta / $seconds) / 1000000
+
+                if ($smoothedspeed -le 0) {
+                    $smoothedspeed = $instant
+                }
+                else {
+                    $smoothedspeed = ($smoothedspeed * 0.65) + ($instant * 0.35)
+                }
+
+                set-download-speed $smoothedspeed
+                $lastbytes = $bytes
+                $lastsample = $now
+            }
+
             foreach ($job in $jobs | where-object state -eq "completed") {
                 if ($handled[$job.id]) {
                     continue
@@ -266,9 +325,12 @@ function download-parallel($downloads, $states, $selected) {
         }
 
         show-status $states $selected "downloads complete"
+        set-download-speed $null
         return $status
     }
     finally {
+        set-download-speed $null
+
         if ($jobs.count) {
             $jobs | remove-job -force -erroraction silentlycontinue
         }
@@ -793,6 +855,7 @@ function install-redists($redists, $states, $selected) {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" LastChildFill="False">
@@ -809,17 +872,28 @@ function install-redists($redists, $states, $selected) {
                     </StackPanel>
                 </DockPanel>
 
+                <TextBlock x:Name="speedText"
+                           Grid.Row="1"
+                           Text=""
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource MutedBrush}"
+                           FontFamily="Consolas"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Margin="0,8,0,2"
+                           Visibility="Collapsed"/>
+
                 <ProgressBar x:Name="progress"
-                             Grid.Row="1"
+                             Grid.Row="2"
                              Minimum="0"
                              Maximum="100"
                              Height="7"
-                             Margin="4,10,4,10"
+                             Margin="4,4,4,10"
                              Foreground="{DynamicResource AccentBrush}"
                              Background="{DynamicResource Surface2Brush}"/>
 
                 <TextBox x:Name="statusBox"
-                         Grid.Row="2"
+                         Grid.Row="3"
                          Height="142"
                          Background="{DynamicResource BgBrush}"
                          Foreground="{DynamicResource TextBrush}"
@@ -843,6 +917,7 @@ $window = [windows.markup.xamlreader]::load($reader)
 $script:tabs = $window.findname("tabs")
 $script:statusbox = $window.findname("statusBox")
 $script:progress = $window.findname("progress")
+$script:speedtext = $window.findname("speedText")
 $script:installbutton = $window.findname("installButton")
 $script:selectallbutton = $window.findname("selectAllButton")
 $script:clearbutton = $window.findname("clearButton")
@@ -943,6 +1018,7 @@ function set-ui-enabled($enabled) {
 }
 
 function set-final-summary($selected, $states, $failed) {
+    set-download-speed $null
     $lines = new-object collections.generic.list[string]
 
     if ($failed.count) {
@@ -1017,6 +1093,7 @@ function invoke-install($selected) {
     $script:downloaderrors = @{}
     $script:installerrors = @{}
     $script:locations = @{}
+    set-download-speed $null
 
     $states = @{}
     $failed = @()
