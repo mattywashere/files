@@ -3,21 +3,37 @@ $progresspreference = "silentlycontinue"
 
 $url = "https://raw.githubusercontent.com/mattywashere/files/main/install.ps1"
 
-try {
-    $host.ui.rawui.windowtitle = "files"
-} catch {}
+$command = "irm '$url' | iex"
+$encoded = [convert]::tobase64string([text.encoding]::unicode.getbytes($command))
 
-if (-not ([security.principal.windowsprincipal][security.principal.windowsidentity]::getcurrent()).isinrole([security.principal.windowsbuiltinrole]::administrator)) {
-    $command = "irm '$url' | iex"
-    $encoded = [convert]::tobase64string([text.encoding]::unicode.getbytes($command))
-    start-process powershell.exe -verb runas -argumentlist "-noprofile -executionpolicy bypass -encodedcommand $encoded"
+$isadmin = ([security.principal.windowsprincipal][security.principal.windowsidentity]::getcurrent()).isinrole(
+    [security.principal.windowsbuiltinrole]::administrator
+)
+
+if (!$isadmin) {
+    start-process powershell.exe -verb runas -argumentlist "-sta -noprofile -executionpolicy bypass -encodedcommand $encoded"
     exit
 }
+
+if ([threading.thread]::currentthread.apartmentstate -ne "STA") {
+    start-process powershell.exe -argumentlist "-sta -noprofile -executionpolicy bypass -encodedcommand $encoded"
+    exit
+}
+
+add-type -assemblyname presentationframework
+add-type -assemblyname presentationcore
+add-type -assemblyname windowsbase
 
 $curl = (get-command curl.exe -erroraction silentlycontinue).source
 
 if (!$curl) {
-    throw "curl.exe not found"
+    [system.windows.messagebox]::show(
+        "curl.exe was not found on this system.",
+        "files",
+        "ok",
+        "error"
+    ) | out-null
+    exit
 }
 
 $root = "c:\matt files"
@@ -29,6 +45,7 @@ $temp = join-path $env:temp "matty-$pid"
 $script:downloaderrors = @{}
 $script:installerrors = @{}
 $script:locations = @{}
+$script:busy = $false
 
 $names = @{
     1 = "obs"
@@ -43,91 +60,75 @@ $names = @{
     10 = "nvcleanstall"
 }
 
-function get-width {
-    try {
-        $width = [console]::windowwidth - 1
-    }
-    catch {
-        $width = 72
+function do-events {
+    $frame = new-object windows.threading.dispatcherframe
+
+    $callback = [windows.threading.dispatcheroperationcallback]{
+        param($f)
+        $f.continue = $false
+        return $null
     }
 
-    if ($width -lt 42) { $width = 42 }
-    if ($width -gt 78) { $width = 78 }
+    [windows.threading.dispatcher]::currentdispatcher.begininvoke(
+        [windows.threading.dispatcherpriority]::background,
+        $callback,
+        $frame
+    ) | out-null
 
-    return $width
+    [windows.threading.dispatcher]::pushframe($frame)
 }
 
-function write-rule {
-    write-host ("-" * (get-width))
-}
+function wait-process-ui($process) {
+    while (!$process.hasexited) {
+        do-events
+        start-sleep -milliseconds 125
+        $process.refresh()
+    }
 
-function show-menu {
-    clear-host
-
-    write-host "files"
-    write-rule
-    write-host ""
-    write-host "portable"
-    write-host "  [1] obs"
-    write-host "  [2] mpv"
-    write-host "  [3] losslesscut"
-    write-host ""
-    write-host "installed apps"
-    write-host "  [4] everything"
-    write-host "  [5] bulk crap uninstaller"
-    write-host "  [6] greenshot"
-    write-host "  [7] notepad++"
-    write-host "  [8] office"
-    write-host ""
-    write-host "runtimes"
-    write-host "  [9] visual c++ redistributables (2005-2026)"
-    write-host ""
-    write-host "tools"
-    write-host "  [10] nvcleanstall"
-    write-host ""
-    write-rule
-    write-host "[a] all    [q] quit"
-    write-host ""
-    write-host "tip: to install more than one item, separate the numbers with commas."
-    write-host "example: 1,2,7 installs obs, mpv, and notepad++."
-    write-host ""
+    return $process.exitcode
 }
 
 function show-status($states, $selected, $message = "") {
-    clear-host
-
-    write-host "files"
-    write-rule
-
-    if ($message) {
-        write-host ""
-        write-host $message
+    if (!$script:statusbox) {
+        return
     }
 
-    write-host ""
+    $lines = new-object collections.generic.list[string]
 
-    foreach ($number in $selected) {
-        $name = $names[$number]
+    if ($message) {
+        $lines.add($message)
+        $lines.add("")
+    }
+
+    $finished = 0
+
+    foreach ($number in ($selected | sort-object)) {
         $state = $states[$number]
 
         if (!$state) {
             $state = "queued"
         }
 
-        $width = get-width
-        $statewidth = 14
-        $namewidth = $width - $statewidth - 1
-
-        if ($name.length -gt $namewidth) {
-            $name = $name.substring(0, [math]::max(1, $namewidth - 3)) + "..."
+        if ($state -eq "done" -or $state -eq "failed") {
+            $finished++
         }
 
-        write-host ("{0,-$namewidth} {1,$statewidth}" -f $name, $state)
+        $lines.add(("{0,-34} {1}" -f $names[$number], $state))
     }
 
-    write-host ""
-    write-rule
+    $script:statusbox.text = $lines -join "`r`n"
+    $script:statusbox.scrolltoend()
+
+    if ($selected.count) {
+        $script:progress.value = [math]::round(($finished / $selected.count) * 100)
+    }
+    else {
+        $script:progress.value = 0
+    }
+
+    do-events
 }
+
 
 function download-parallel($downloads, $states, $selected) {
     $status = @{}
@@ -420,10 +421,17 @@ function install-winget($name, $id, $number, $states, $selected, $patterns, $fal
     $states[$number] = "installing"
     show-status $states $selected "installing selected apps..."
 
-    & winget.exe install --id $id --exact --source winget --scope machine --silent --accept-package-agreements --accept-source-agreements --disable-interactivity *> $null
+    $process = start-process winget.exe -argumentlist @(
+        "install", "--id", $id, "--exact", "--source", "winget",
+        "--scope", "machine", "--silent",
+        "--accept-package-agreements", "--accept-source-agreements",
+        "--disable-interactivity"
+    ) -passthru -windowstyle hidden
 
-    if ($lastexitcode) {
-        throw "$name install failed"
+    $code = wait-process-ui $process
+
+    if ($code -ne 0) {
+        throw "$name install failed with exit code $code"
     }
 
     $script:locations[$number] = get-app-location $patterns $fallbacks
@@ -443,10 +451,11 @@ function install-office($states, $selected) {
     $states[8] = "installing"
     show-status $states $selected "installing office..."
 
-    $process = start-process $setup -argumentlist "/configure `"$config`"" -wait -passthru -windowstyle hidden
+    $process = start-process $setup -argumentlist "/configure `"$config`"" -passthru -windowstyle hidden
+    $code = wait-process-ui $process
 
-    if ($process.exitcode) {
-        throw "office install failed with exit code $($process.exitcode)"
+    if ($code -ne 0) {
+        throw "office install failed with exit code $code"
     }
 
     $officepaths = @(
@@ -494,10 +503,12 @@ function install-nvcleanstall($states, $selected) {
     $reg = start-process reg.exe -argumentlist @(
         "import"
         "`"$settings`""
-    ) -wait -passthru -windowstyle hidden
+    ) -passthru -windowstyle hidden
 
-    if ($reg.exitcode -ne 0) {
-        throw "failed to import nvcleanstall settings (exit code $($reg.exitcode))"
+    $regcode = wait-process-ui $reg
+
+    if ($regcode -ne 0) {
+        throw "failed to import nvcleanstall settings (exit code $regcode)"
     }
 
     [io.file]::copy($source, $target, $true)
@@ -523,8 +534,8 @@ function install-redists($redists, $states, $selected) {
         $states[9] = "installing $index/$total"
         show-status $states $selected "installing visual c++ redistributables..."
 
-        $process = start-process $item.path -argumentlist $item.args -wait -passthru -windowstyle hidden
-        $code = $process.exitcode
+        $process = start-process $item.path -argumentlist $item.args -passthru -windowstyle hidden
+        $code = wait-process-ui $process
 
         if ($code -notin @(0, 3010, 1641, 1638, -2147023258)) {
             $warnings += "$($item.name) returned exit code $code"
@@ -541,384 +552,685 @@ function install-redists($redists, $states, $selected) {
 }
 
 
-show-menu
-$choice = (read-host "selection").trim().tolower()
 
-if ($choice -eq "q") {
-    exit
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="files"
+        Width="920"
+        Height="700"
+        MinWidth="760"
+        MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="#0f1115"
+        Foreground="#f3f4f6"
+        FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="#0f1115"/>
+            <Setter Property="BorderBrush" Value="#2a2f38"/>
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#c9ced6"/>
+            <Setter Property="Background" Value="#171a20"/>
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Margin" Value="0,0,2,0"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#f3f4f6"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Margin" Value="0,7,0,7"/>
+            <Setter Property="Padding" Value="2"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="#f3f4f6"/>
+            <Setter Property="Background" Value="#232832"/>
+            <Setter Property="BorderBrush" Value="#3a414d"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#2563eb"/>
+            <Setter Property="BorderBrush" Value="#3b82f6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#d9dde4"/>
+            <Setter Property="BorderBrush" Value="#2a2f38"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="2,0,2,16">
+            <TextBlock Text="files" FontSize="26" FontWeight="SemiBold"/>
+            <TextBlock Text="select what you want, then install it in one pass"
+                       Foreground="#8d96a5"
+                       FontSize="13"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <TabControl Grid.Row="1" x:Name="tabs">
+            <TabItem Header="Install">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                    <StackPanel>
+                        <GroupBox Header="Portable">
+                            <StackPanel>
+                                <CheckBox x:Name="chk1" Content="OBS Studio"/>
+                                <TextBlock Text="Configured portable OBS, replay buffer, startup + system tray."
+                                           Foreground="#8d96a5" Margin="25,-4,0,7"/>
+                                <CheckBox x:Name="chk2" Content="MPV"/>
+                                <CheckBox x:Name="chk3" Content="LosslessCut"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Applications">
+                            <StackPanel>
+                                <CheckBox x:Name="chk4" Content="Everything"/>
+                                <CheckBox x:Name="chk5" Content="Bulk Crap Uninstaller"/>
+                                <CheckBox x:Name="chk6" Content="Greenshot"/>
+                                <CheckBox x:Name="chk7" Content="Notepad++"/>
+                                <CheckBox x:Name="chk8" Content="Microsoft Office"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Runtimes">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                    <StackPanel>
+                        <GroupBox Header="Redistributables">
+                            <StackPanel>
+                                <CheckBox x:Name="chk9" Content="Visual C++ Redistributables 2005-2026"/>
+                                <TextBlock Text="Installs the x86 and x64 runtime packages silently. x64 packages are skipped on 32-bit Windows."
+                                           TextWrapping="Wrap"
+                                           Foreground="#8d96a5"
+                                           Margin="25,-4,0,7"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Tools">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                    <StackPanel>
+                        <GroupBox Header="Driver Tools">
+                            <StackPanel>
+                                <CheckBox x:Name="chk10" Content="NVCleanstall 1.19.0"/>
+                                <TextBlock Text="Copies NVCleanstall to your Desktop and imports the saved previous-settings preset."
+                                           TextWrapping="Wrap"
+                                           Foreground="#8d96a5"
+                                           Margin="25,-4,0,7"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="About">
+                <Grid Padding="18">
+                    <StackPanel VerticalAlignment="Top">
+                        <TextBlock Text="Matt Files"
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="Windows setup utility for portable apps, common software, runtimes, and tools."
+                                   TextWrapping="Wrap"
+                                   Foreground="#a6aebb"
+                                   Margin="0,0,0,18"/>
+                        <Button x:Name="githubButton"
+                                Content="Open GitHub"
+                                HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="2"
+                Background="#15181e"
+                BorderBrush="#2a2f38"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="12"
+                Margin="0,16,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" LastChildFill="False">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                        <Button x:Name="selectAllButton" Content="Select All"/>
+                        <Button x:Name="clearButton" Content="Clear"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                        <Button x:Name="closeButton" Content="Close"/>
+                        <Button x:Name="installButton"
+                                Content="Install Selected"
+                                Style="{StaticResource PrimaryButton}"/>
+                    </StackPanel>
+                </DockPanel>
+
+                <ProgressBar x:Name="progress"
+                             Grid.Row="1"
+                             Minimum="0"
+                             Maximum="100"
+                             Height="7"
+                             Margin="4,10,4,10"/>
+
+                <TextBox x:Name="statusBox"
+                         Grid.Row="2"
+                         Height="142"
+                         Background="#0c0e12"
+                         Foreground="#d7dce4"
+                         BorderBrush="#2a2f38"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         Padding="10"
+                         IsReadOnly="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         Text="ready. select one or more items, then click install selected."/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
+"@
+
+$reader = new-object system.xml.xmlnodereader $xaml
+$window = [windows.markup.xamlreader]::load($reader)
+
+$script:tabs = $window.findname("tabs")
+$script:statusbox = $window.findname("statusBox")
+$script:progress = $window.findname("progress")
+$script:installbutton = $window.findname("installButton")
+$script:selectallbutton = $window.findname("selectAllButton")
+$script:clearbutton = $window.findname("clearButton")
+$script:closebutton = $window.findname("closeButton")
+$script:githubbutton = $window.findname("githubButton")
+
+$script:checkboxes = @{}
+
+1..10 | foreach-object {
+    $script:checkboxes[$_] = $window.findname("chk$_")
 }
 
-if ($choice -eq "a") {
-    $selected = 1..10
-}
-else {
-    $selected = @(
-        $choice -split "," |
-        foreach-object { $_.trim() } |
-        where-object { $_ -match "^(?:[1-9]|10)$" } |
-        foreach-object { [int]$_ } |
-        sort-object -unique
-    )
-}
+function set-ui-enabled($enabled) {
+    1..10 | foreach-object {
+        $script:checkboxes[$_].isenabled = $enabled
+    }
 
-if (!$selected.count) {
-    clear-host
-    write-host "nothing selected"
-    start-sleep 1
-    exit
+    $script:selectallbutton.isenabled = $enabled
+    $script:clearbutton.isenabled = $enabled
+    $script:installbutton.isenabled = $enabled
+    $script:tabs.isenabled = $enabled
+    $script:closebutton.isenabled = $enabled
 }
 
-$states = @{}
-$failed = @()
-$portables = @()
-$downloads = @()
+function set-final-summary($selected, $states, $failed) {
+    $lines = new-object collections.generic.list[string]
 
-foreach ($number in $selected) {
-    $states[$number] = "queued"
-}
-
-[io.directory]::createdirectory($temp) | out-null
-
-try {
-    show-status $states $selected "preparing..."
-
-    $redists = @()
-
-    if ($selected -contains 10) {
-        $states[10] = "downloading"
-
-        $downloads += [pscustomobject]@{
-            number = $null
-            name = "nvcleanstall-exe"
-            url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/NVCleanstall_1.19.0.exe"
-            path = (join-path $temp "NVCleanstall_1.19.0.exe")
-        }
-
-        $downloads += [pscustomobject]@{
-            number = $null
-            name = "nvcleanstall-settings"
-            url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/settings.reg"
-            path = (join-path $temp "nvcleanstall-settings.reg")
-        }
+    if ($failed.count) {
+        $lines.add("finished with $($failed.count) failure(s)")
+    }
+    else {
+        $lines.add("finished")
     }
 
-    if ($selected -contains 9) {
-        $redisttemp = join-path $temp "redist"
-        [io.directory]::createdirectory($redisttemp) | out-null
+    $lines.add("")
 
-        $redists = @(
-            [pscustomobject]@{ name = "vc++ 2005 x86"; file = "vcredist2005_x86.exe"; args = "/q"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ 2005 x64"; file = "vcredist2005_x64.exe"; args = "/q"; arch = "x64" }
-            [pscustomobject]@{ name = "vc++ 2008 x86"; file = "vcredist2008_x86.exe"; args = "/q"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ 2008 x64"; file = "vcredist2008_x64.exe"; args = "/q"; arch = "x64" }
-            [pscustomobject]@{ name = "vc++ 2010 x86"; file = "vcredist2010_x86.exe"; args = "/quiet /norestart"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ 2010 x64"; file = "vcredist2010_x64.exe"; args = "/quiet /norestart"; arch = "x64" }
-            [pscustomobject]@{ name = "vc++ 2012 x86"; file = "vcredist2012_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ 2012 x64"; file = "vcredist2012_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
-            [pscustomobject]@{ name = "vc++ 2013 x86"; file = "vcredist2013_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ 2013 x64"; file = "vcredist2013_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
-            [pscustomobject]@{ name = "vc++ v14 x86"; file = "vcredist_v14.x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
-            [pscustomobject]@{ name = "vc++ v14 x64"; file = "vcredist_v14.x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
-        )
+    foreach ($number in ($selected | sort-object)) {
+        $state = $states[$number]
 
-        $states[9] = "downloading"
+        if (!$state) {
+            $state = "unknown"
+        }
 
-        foreach ($item in $redists) {
-            if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
-                continue
-            }
+        $lines.add(("{0,-34} {1}" -f $names[$number], $state))
+    }
 
-            $item | add-member -notepropertyname path -notepropertyvalue (join-path $redisttemp $item.file)
+    if ($script:locations.count) {
+        $lines.add("")
+        $lines.add("installed to")
 
-            $downloads += [pscustomobject]@{
-                number = $null
-                name = "redist-$($item.file)"
-                url = "https://raw.githubusercontent.com/mattywashere/files/main/redist/$($item.file)"
-                path = $item.path
+        foreach ($number in ($selected | sort-object)) {
+            if ($script:locations.containskey($number)) {
+                $lines.add("  $($names[$number]): $($script:locations[$number])")
             }
         }
     }
-
-    if ($selected -contains 1) {
-        $package = [pscustomobject]@{
-            name = "obs"
-            file = "obs.zip"
-            url = "https://github.com/mattywashere/files/releases/latest/download/obs.zip"
-            path = (join-path $temp "obs.zip")
-        }
-
-        $portables += [pscustomobject]@{ number = 1; package = $package }
-        $downloads += [pscustomobject]@{ number = 1; name = "obs"; url = $package.url; path = $package.path }
-    }
-
-    if ($selected -contains 2) {
-        $package = [pscustomobject]@{
-            name = "mpv"
-            file = "mpv.zip"
-            url = "https://github.com/mattywashere/files/releases/latest/download/mpv.zip"
-            path = (join-path $temp "mpv.zip")
-        }
-
-        $portables += [pscustomobject]@{ number = 2; package = $package }
-        $downloads += [pscustomobject]@{ number = 2; name = "mpv"; url = $package.url; path = $package.path }
-    }
-
-    if ($selected -contains 3) {
-        $package = [pscustomobject]@{
-            name = "losslesscut"
-            file = "losslesscut.zip"
-            url = "https://github.com/mattywashere/files/releases/latest/download/losslesscut.zip"
-            path = (join-path $temp "losslesscut.zip")
-        }
-
-        $portables += [pscustomobject]@{ number = 3; package = $package }
-        $downloads += [pscustomobject]@{ number = 3; name = "losslesscut"; url = $package.url; path = $package.path }
-    }
-
-    if ($selected -contains 8) {
-        $states[8] = "downloading"
-
-        $downloads += [pscustomobject]@{
-            number = $null
-            name = "office-setup"
-            url = "https://raw.githubusercontent.com/mattywashere/files/main/office/setup.exe"
-            path = (join-path $temp "office-setup.exe")
-        }
-
-        $downloads += [pscustomobject]@{
-            number = $null
-            name = "office-config"
-            url = "https://raw.githubusercontent.com/mattywashere/files/main/office/Configuration.xml"
-            path = (join-path $temp "office-configuration.xml")
-        }
-    }
-
-    $downloadstatus = download-parallel $downloads $states $selected
-
-    if ($selected -contains 8) {
-        if ($downloadstatus["office-setup"] -and $downloadstatus["office-config"]) {
-            $states[8] = "downloaded"
-        }
-        else {
-            $states[8] = "failed"
-            $failed += 8
-        }
-    }
-
-    if ($selected -contains 10) {
-        if ($downloadstatus["nvcleanstall-exe"] -and $downloadstatus["nvcleanstall-settings"]) {
-            $states[10] = "downloaded"
-        }
-        else {
-            $states[10] = "failed"
-            $failed += 10
-        }
-    }
-
-    if ($selected -contains 9) {
-        $redistok = $true
-
-        foreach ($item in $redists) {
-            if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
-                continue
-            }
-
-            if (!$downloadstatus["redist-$($item.file)"]) {
-                $redistok = $false
-                break
-            }
-        }
-
-        if ($redistok) {
-            $states[9] = "downloaded"
-        }
-        else {
-            $states[9] = "failed"
-            $failed += 9
-        }
-    }
-
-    foreach ($entry in $portables) {
-        $number = $entry.number
-        $package = $entry.package
-
-        if (!$downloadstatus[$package.name]) {
-            $states[$number] = "failed"
-
-            if ($failed -notcontains $number) {
-                $failed += $number
-            }
-
-            continue
-        }
-
-        try {
-            install-portable $package $number $states $selected
-
-            if ($number -eq 1) {
-                set-obs-startup
-            }
-        }
-        catch {
-            $states[$number] = "failed"
-            $script:installerrors[$package.name] = $_.exception.message
-
-            if ($failed -notcontains $number) {
-                $failed += $number
-            }
-
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if (($selected -contains 10) -and ($failed -notcontains 10)) {
-        try {
-            install-nvcleanstall $states $selected
-        }
-        catch {
-            $states[10] = "failed"
-            $script:installerrors["nvcleanstall"] = $_.exception.message
-            $failed += 10
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if (($selected -contains 9) -and ($failed -notcontains 9)) {
-        try {
-            install-redists $redists $states $selected
-        }
-        catch {
-            $states[9] = "failed"
-            $script:installerrors["visual c++ redistributables"] = $_.exception.message
-            $failed += 9
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if ($selected -contains 4) {
-        try {
-            install-winget "everything" "voidtools.Everything" 4 $states $selected @("^Everything") @("$env:programfiles\Everything", "${env:programfiles(x86)}\Everything")
-        }
-        catch {
-            $states[4] = "failed"
-            $failed += 4
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if ($selected -contains 5) {
-        try {
-            install-winget "bulk crap uninstaller" "Klocman.BulkCrapUninstaller" 5 $states $selected @("Bulk Crap Uninstaller", "BCUninstaller") @("$env:programfiles\BCUninstaller", "${env:programfiles(x86)}\BCUninstaller")
-        }
-        catch {
-            $states[5] = "failed"
-            $failed += 5
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if ($selected -contains 6) {
-        try {
-            install-winget "greenshot" "Greenshot.Greenshot" 6 $states $selected @("^Greenshot") @("$env:programfiles\Greenshot", "${env:programfiles(x86)}\Greenshot")
-        }
-        catch {
-            $states[6] = "failed"
-            $failed += 6
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if ($selected -contains 7) {
-        try {
-            install-winget "notepad++" "Notepad++.Notepad++" 7 $states $selected @("Notepad\+\+") @("$env:programfiles\Notepad++", "${env:programfiles(x86)}\Notepad++")
-        }
-        catch {
-            $states[7] = "failed"
-            $failed += 7
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-
-    if (($selected -contains 8) -and ($failed -notcontains 8)) {
-        try {
-            install-office $states $selected
-        }
-        catch {
-            $states[8] = "failed"
-            $failed += 8
-            show-status $states $selected "installing selected apps..."
-        }
-    }
-}
-finally {
-    if (test-path -literalpath $temp) {
-        remove-item -literalpath $temp -recurse -force
-    }
-}
-
-$failed = @($failed | sort-object -unique)
-
-if ($failed.count) {
-    show-status $states $selected "finished with $($failed.count) failure(s)"
 
     if ($script:downloaderrors.count) {
-        write-host ""
-        write-host "download errors"
+        $lines.add("")
+        $lines.add("download errors")
 
         foreach ($key in $script:downloaderrors.keys) {
-            $message = [string]$script:downloaderrors[$key]
-
-            if ($message.length -gt 180) {
-                $message = $message.substring(0, 177) + "..."
-            }
-
-            write-host "  $key`: $message"
+            $lines.add("  $key`: $($script:downloaderrors[$key])")
         }
     }
 
     if ($script:installerrors.count) {
-        write-host ""
-        write-host "install errors"
+        $lines.add("")
+        $lines.add("install errors")
 
         foreach ($key in $script:installerrors.keys) {
-            $message = [string]$script:installerrors[$key]
+            $lines.add("  $key`: $($script:installerrors[$key])")
+        }
+    }
 
-            if ($message.length -gt 180) {
-                $message = $message.substring(0, 177) + "..."
+    if (($selected -contains 1) -and ($states[1] -eq "done")) {
+        $lines.add("")
+        $lines.add("obs note")
+        $lines.add("  obs is running in the system tray.")
+        $lines.add("  obs will start automatically every time you sign in to windows.")
+    }
+
+    if (($selected -contains 10) -and ($states[10] -eq "done")) {
+        $lines.add("")
+        $lines.add("nvcleanstall note")
+        $lines.add("  your saved tweak preset has been imported.")
+        $lines.add("  click 'use previous settings' in nvcleanstall to load it.")
+    }
+
+    $script:statusbox.text = $lines -join "`r`n"
+    $script:statusbox.scrolltoend()
+    $script:progress.value = 100
+    do-events
+}
+
+function invoke-install($selected) {
+    $script:downloaderrors = @{}
+    $script:installerrors = @{}
+    $script:locations = @{}
+
+    $states = @{}
+    $failed = @()
+    $portables = @()
+    $downloads = @()
+
+    foreach ($number in $selected) {
+        $states[$number] = "queued"
+    }
+
+    if (test-path -literalpath $temp) {
+        remove-item -literalpath $temp -recurse -force -erroraction silentlycontinue
+    }
+
+    [io.directory]::createdirectory($temp) | out-null
+
+    try {
+        show-status $states $selected "preparing..."
+
+        $redists = @()
+
+        if ($selected -contains 10) {
+            $states[10] = "downloading"
+
+            $downloads += [pscustomobject]@{
+                number = $null
+                name = "nvcleanstall-exe"
+                url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/NVCleanstall_1.19.0.exe"
+                path = (join-path $temp "NVCleanstall_1.19.0.exe")
             }
 
-            write-host "  $key`: $message"
+            $downloads += [pscustomobject]@{
+                number = $null
+                name = "nvcleanstall-settings"
+                url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/settings.reg"
+                path = (join-path $temp "nvcleanstall-settings.reg")
+            }
+        }
+
+        if ($selected -contains 9) {
+            $redisttemp = join-path $temp "redist"
+            [io.directory]::createdirectory($redisttemp) | out-null
+
+            $redists = @(
+                [pscustomobject]@{ name = "vc++ 2005 x86"; file = "vcredist2005_x86.exe"; args = "/q"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ 2005 x64"; file = "vcredist2005_x64.exe"; args = "/q"; arch = "x64" }
+                [pscustomobject]@{ name = "vc++ 2008 x86"; file = "vcredist2008_x86.exe"; args = "/q"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ 2008 x64"; file = "vcredist2008_x64.exe"; args = "/q"; arch = "x64" }
+                [pscustomobject]@{ name = "vc++ 2010 x86"; file = "vcredist2010_x86.exe"; args = "/quiet /norestart"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ 2010 x64"; file = "vcredist2010_x64.exe"; args = "/quiet /norestart"; arch = "x64" }
+                [pscustomobject]@{ name = "vc++ 2012 x86"; file = "vcredist2012_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ 2012 x64"; file = "vcredist2012_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+                [pscustomobject]@{ name = "vc++ 2013 x86"; file = "vcredist2013_x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ 2013 x64"; file = "vcredist2013_x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+                [pscustomobject]@{ name = "vc++ v14 x86"; file = "vcredist_v14.x86.exe"; args = "/install /quiet /norestart"; arch = "any" }
+                [pscustomobject]@{ name = "vc++ v14 x64"; file = "vcredist_v14.x64.exe"; args = "/install /quiet /norestart"; arch = "x64" }
+            )
+
+            $states[9] = "downloading"
+
+            foreach ($item in $redists) {
+                if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
+                    continue
+                }
+
+                $item | add-member -notepropertyname path -notepropertyvalue (join-path $redisttemp $item.file)
+
+                $downloads += [pscustomobject]@{
+                    number = $null
+                    name = "redist-$($item.file)"
+                    url = "https://raw.githubusercontent.com/mattywashere/files/main/redist/$($item.file)"
+                    path = $item.path
+                }
+            }
+        }
+
+        if ($selected -contains 1) {
+            $package = [pscustomobject]@{
+                name = "obs"
+                file = "obs.zip"
+                url = "https://github.com/mattywashere/files/releases/latest/download/obs.zip"
+                path = (join-path $temp "obs.zip")
+            }
+
+            $portables += [pscustomobject]@{ number = 1; package = $package }
+            $downloads += [pscustomobject]@{ number = 1; name = "obs"; url = $package.url; path = $package.path }
+        }
+
+        if ($selected -contains 2) {
+            $package = [pscustomobject]@{
+                name = "mpv"
+                file = "mpv.zip"
+                url = "https://github.com/mattywashere/files/releases/latest/download/mpv.zip"
+                path = (join-path $temp "mpv.zip")
+            }
+
+            $portables += [pscustomobject]@{ number = 2; package = $package }
+            $downloads += [pscustomobject]@{ number = 2; name = "mpv"; url = $package.url; path = $package.path }
+        }
+
+        if ($selected -contains 3) {
+            $package = [pscustomobject]@{
+                name = "losslesscut"
+                file = "losslesscut.zip"
+                url = "https://github.com/mattywashere/files/releases/latest/download/losslesscut.zip"
+                path = (join-path $temp "losslesscut.zip")
+            }
+
+            $portables += [pscustomobject]@{ number = 3; package = $package }
+            $downloads += [pscustomobject]@{ number = 3; name = "losslesscut"; url = $package.url; path = $package.path }
+        }
+
+        if ($selected -contains 8) {
+            $states[8] = "downloading"
+
+            $downloads += [pscustomobject]@{
+                number = $null
+                name = "office-setup"
+                url = "https://raw.githubusercontent.com/mattywashere/files/main/office/setup.exe"
+                path = (join-path $temp "office-setup.exe")
+            }
+
+            $downloads += [pscustomobject]@{
+                number = $null
+                name = "office-config"
+                url = "https://raw.githubusercontent.com/mattywashere/files/main/office/Configuration.xml"
+                path = (join-path $temp "office-configuration.xml")
+            }
+        }
+
+        $downloadstatus = download-parallel $downloads $states $selected
+
+        if ($selected -contains 8) {
+            if ($downloadstatus["office-setup"] -and $downloadstatus["office-config"]) {
+                $states[8] = "downloaded"
+            }
+            else {
+                $states[8] = "failed"
+                $failed += 8
+            }
+        }
+
+        if ($selected -contains 10) {
+            if ($downloadstatus["nvcleanstall-exe"] -and $downloadstatus["nvcleanstall-settings"]) {
+                $states[10] = "downloaded"
+            }
+            else {
+                $states[10] = "failed"
+                $failed += 10
+            }
+        }
+
+        if ($selected -contains 9) {
+            $redistok = $true
+
+            foreach ($item in $redists) {
+                if ($item.arch -eq "x64" -and -not [environment]::is64bitoperatingsystem) {
+                    continue
+                }
+
+                if (!$downloadstatus["redist-$($item.file)"]) {
+                    $redistok = $false
+                    break
+                }
+            }
+
+            if ($redistok) {
+                $states[9] = "downloaded"
+            }
+            else {
+                $states[9] = "failed"
+                $failed += 9
+            }
+        }
+
+        foreach ($entry in $portables) {
+            $number = $entry.number
+            $package = $entry.package
+
+            if (!$downloadstatus[$package.name]) {
+                $states[$number] = "failed"
+
+                if ($failed -notcontains $number) {
+                    $failed += $number
+                }
+
+                continue
+            }
+
+            try {
+                install-portable $package $number $states $selected
+
+                if ($number -eq 1) {
+                    set-obs-startup
+                }
+            }
+            catch {
+                $states[$number] = "failed"
+                $script:installerrors[$package.name] = $_.exception.message
+
+                if ($failed -notcontains $number) {
+                    $failed += $number
+                }
+
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if (($selected -contains 10) -and ($failed -notcontains 10)) {
+            try {
+                install-nvcleanstall $states $selected
+            }
+            catch {
+                $states[10] = "failed"
+                $script:installerrors["nvcleanstall"] = $_.exception.message
+                $failed += 10
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if (($selected -contains 9) -and ($failed -notcontains 9)) {
+            try {
+                install-redists $redists $states $selected
+            }
+            catch {
+                $states[9] = "failed"
+                $script:installerrors["visual c++ redistributables"] = $_.exception.message
+                $failed += 9
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if ($selected -contains 4) {
+            try {
+                install-winget "everything" "voidtools.Everything" 4 $states $selected @("^Everything") @("$env:programfiles\Everything", "${env:programfiles(x86)}\Everything")
+            }
+            catch {
+                $states[4] = "failed"
+                $script:installerrors["everything"] = $_.exception.message
+                $failed += 4
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if ($selected -contains 5) {
+            try {
+                install-winget "bulk crap uninstaller" "Klocman.BulkCrapUninstaller" 5 $states $selected @("Bulk Crap Uninstaller", "BCUninstaller") @("$env:programfiles\BCUninstaller", "${env:programfiles(x86)}\BCUninstaller")
+            }
+            catch {
+                $states[5] = "failed"
+                $script:installerrors["bulk crap uninstaller"] = $_.exception.message
+                $failed += 5
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if ($selected -contains 6) {
+            try {
+                install-winget "greenshot" "Greenshot.Greenshot" 6 $states $selected @("^Greenshot") @("$env:programfiles\Greenshot", "${env:programfiles(x86)}\Greenshot")
+            }
+            catch {
+                $states[6] = "failed"
+                $script:installerrors["greenshot"] = $_.exception.message
+                $failed += 6
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if ($selected -contains 7) {
+            try {
+                install-winget "notepad++" "Notepad++.Notepad++" 7 $states $selected @("Notepad\+\+") @("$env:programfiles\Notepad++", "${env:programfiles(x86)}\Notepad++")
+            }
+            catch {
+                $states[7] = "failed"
+                $script:installerrors["notepad++"] = $_.exception.message
+                $failed += 7
+                show-status $states $selected "installing selected apps..."
+            }
+        }
+
+        if (($selected -contains 8) -and ($failed -notcontains 8)) {
+            try {
+                install-office $states $selected
+            }
+            catch {
+                $states[8] = "failed"
+                $script:installerrors["office"] = $_.exception.message
+                $failed += 8
+                show-status $states $selected "installing selected apps..."
+            }
         }
     }
-}
-else {
-    show-status $states $selected "finished"
-}
-
-if ($script:locations.count) {
-    write-host ""
-    write-host "installed to"
-
-    foreach ($number in ($selected | sort-object)) {
-        if ($script:locations.containskey($number)) {
-            write-host ("  {0}: {1}" -f $names[$number], $script:locations[$number])
+    finally {
+        if (test-path -literalpath $temp) {
+            remove-item -literalpath $temp -recurse -force -erroraction silentlycontinue
         }
     }
+
+    $failed = @($failed | sort-object -unique)
+    set-final-summary $selected $states $failed
 }
 
-if (($selected -contains 1) -and ($states[1] -eq "done")) {
-    write-host ""
-    write-host "obs note"
-    write-host "  obs is running in the system tray."
-    write-host "  obs will start automatically every time you sign in to windows."
-}
+$script:selectallbutton.add_click({
+    1..10 | foreach-object {
+        $script:checkboxes[$_].ischecked = $true
+    }
+})
 
-if (($selected -contains 10) -and ($states[10] -eq "done")) {
-    write-host ""
-    write-host "nvcleanstall note"
-    write-host "  your saved tweak preset has been imported."
-    write-host "  click 'use previous settings' in nvcleanstall to load it."
-}
+$script:clearbutton.add_click({
+    1..10 | foreach-object {
+        $script:checkboxes[$_].ischecked = $false
+    }
+})
 
-write-host ""
-read-host "press enter to exit"
+$script:githubbutton.add_click({
+    start-process "https://github.com/mattywashere/files"
+})
+
+$script:closebutton.add_click({
+    if (!$script:busy) {
+        $window.close()
+    }
+})
+
+$window.add_closing({
+    param($sender, $eventargs)
+
+    if ($script:busy) {
+        $eventargs.cancel = $true
+    }
+})
+
+$script:installbutton.add_click({
+    $selected = @(
+        1..10 | where-object {
+            $script:checkboxes[$_].ischecked -eq $true
+        }
+    )
+
+    if (!$selected.count) {
+        [system.windows.messagebox]::show(
+            "Select at least one item first.",
+            "files",
+            "ok",
+            "information"
+        ) | out-null
+
+        return
+    }
+
+    $script:busy = $true
+    set-ui-enabled $false
+    $script:statusbox.text = "starting..."
+    $script:progress.value = 0
+    do-events
+
+    try {
+        invoke-install $selected
+    }
+    catch {
+        $script:statusbox.text = "installer error:`r`n`r`n$($_.exception.message)"
+        $script:statusbox.scrolltoend()
+    }
+    finally {
+        $script:busy = $false
+        set-ui-enabled $true
+        do-events
+    }
+})
+
+$window.showdialog() | out-null
