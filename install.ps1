@@ -555,7 +555,7 @@ function install-redists($redists, $states, $selected) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="files"
+        Title="files - gui v2"
         Width="920"
         Height="700"
         MinWidth="760"
@@ -573,7 +573,6 @@ function install-redists($redists, $states, $selected) {
         <Style TargetType="TabItem">
             <Setter Property="Foreground" Value="#c9ced6"/>
             <Setter Property="Background" Value="#171a20"/>
-            <Setter Property="Padding" Value="20,10"/>
             <Setter Property="Margin" Value="0,0,2,0"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
@@ -582,14 +581,12 @@ function install-redists($redists, $states, $selected) {
             <Setter Property="Foreground" Value="#f3f4f6"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Margin" Value="0,7,0,7"/>
-            <Setter Property="Padding" Value="2"/>
         </Style>
 
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="#f3f4f6"/>
             <Setter Property="Background" Value="#232832"/>
             <Setter Property="BorderBrush" Value="#3a414d"/>
-            <Setter Property="Padding" Value="16,8"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="MinHeight" Value="36"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -605,7 +602,6 @@ function install-redists($redists, $states, $selected) {
             <Setter Property="Foreground" Value="#d9dde4"/>
             <Setter Property="BorderBrush" Value="#2a2f38"/>
             <Setter Property="Margin" Value="0,0,0,16"/>
-            <Setter Property="Padding" Value="16"/>
         </Style>
     </Window.Resources>
 
@@ -626,7 +622,8 @@ function install-redists($redists, $states, $selected) {
 
         <TabControl Grid.Row="1" x:Name="tabs">
             <TabItem Header="Install">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Margin="18">
                     <StackPanel>
                         <GroupBox Header="Portable">
                             <StackPanel>
@@ -648,11 +645,13 @@ function install-redists($redists, $states, $selected) {
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
+                    </Border>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Runtimes">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Margin="18">
                     <StackPanel>
                         <GroupBox Header="Redistributables">
                             <StackPanel>
@@ -664,11 +663,13 @@ function install-redists($redists, $states, $selected) {
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
+                    </Border>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Tools">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Margin="18">
                     <StackPanel>
                         <GroupBox Header="Driver Tools">
                             <StackPanel>
@@ -680,6 +681,7 @@ function install-redists($redists, $states, $selected) {
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
+                    </Border>
                 </ScrollViewer>
             </TabItem>
 
@@ -707,9 +709,8 @@ function install-redists($redists, $states, $selected) {
                 BorderBrush="#2a2f38"
                 BorderThickness="1"
                 CornerRadius="6"
-                Padding="12"
                 Margin="0,16,0,0">
-            <Grid>
+            <Grid Margin="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -745,12 +746,11 @@ function install-redists($redists, $states, $selected) {
                          BorderBrush="#2a2f38"
                          FontFamily="Consolas"
                          FontSize="12"
-                         Padding="10"
                          IsReadOnly="True"
                          TextWrapping="NoWrap"
                          VerticalScrollBarVisibility="Auto"
                          HorizontalScrollBarVisibility="Auto"
-                         Text="ready. select one or more items, then click install selected."/>
+                         Text="ready - gui v2. select one or more items, then click install selected."/>
             </Grid>
         </Border>
     </Grid>
