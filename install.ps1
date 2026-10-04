@@ -555,25 +555,36 @@ function install-redists($redists, $states, $selected) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="files - black gui"
+        Title="files"
         Width="920"
         Height="700"
         MinWidth="760"
         MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        Background="#000000"
-        Foreground="#ffffff"
+        Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI">
+
     <Window.Resources>
+        <SolidColorBrush x:Key="BgBrush" Color="#000000"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#1a1a1a"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="#292929"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#434343"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#fafafa"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#a5a5a5"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#767676"/>
+        <SolidColorBrush x:Key="Accent2Brush" Color="#575757"/>
+
         <Style TargetType="TabControl">
-            <Setter Property="Background" Value="#0f1115"/>
-            <Setter Property="BorderBrush" Value="#2a2f38"/>
+            <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
         </Style>
 
         <Style TargetType="TabItem">
-            <Setter Property="Foreground" Value="#ffffff"/>
-            <Setter Property="Background" Value="#000000"/>
-            <Setter Property="BorderBrush" Value="#000000"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BgBrush}"/>
             <Setter Property="Margin" Value="0,0,12,0"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -581,8 +592,8 @@ function install-redists($redists, $states, $selected) {
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
-                        <Border Background="#000000"
-                                BorderBrush="#000000"
+                        <Border Background="{DynamicResource BgBrush}"
+                                BorderBrush="{DynamicResource BgBrush}"
                                 BorderThickness="0"
                                 Margin="0">
                             <ContentPresenter ContentSource="Header"
@@ -596,30 +607,50 @@ function install-redists($redists, $states, $selected) {
         </Style>
 
         <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="#f3f4f6"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Margin" Value="0,7,0,7"/>
         </Style>
 
         <Style TargetType="Button">
-            <Setter Property="Foreground" Value="#f3f4f6"/>
-            <Setter Property="Background" Value="#232832"/>
-            <Setter Property="BorderBrush" Value="#3a414d"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface2Brush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="MinHeight" Value="36"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         </Style>
 
         <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#2563eb"/>
-            <Setter Property="BorderBrush" Value="#3b82f6"/>
+            <Setter Property="Background" Value="{DynamicResource Accent2Brush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
         <Style TargetType="GroupBox">
-            <Setter Property="Foreground" Value="#d9dde4"/>
-            <Setter Property="BorderBrush" Value="#2a2f38"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="Margin" Value="0,0,0,16"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface2Brush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="MinHeight" Value="30"/>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
         </Style>
     </Window.Resources>
 
@@ -630,39 +661,67 @@ function install-redists($redists, $states, $selected) {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="2,0,2,16">
-            <TextBlock Text="files" FontSize="26" FontWeight="SemiBold"/>
-            <TextBlock Text="select what you want, then install it in one pass"
-                       Foreground="#9a9a9a"
-                       FontSize="13"
-                       Margin="0,4,0,0"/>
-        </StackPanel>
+        <Grid Grid.Row="0" Margin="2,0,2,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="files"
+                           Foreground="{DynamicResource TextBrush}"
+                           FontSize="26"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="select what you want, then install it in one pass"
+                           Foreground="{DynamicResource MutedBrush}"
+                           FontSize="13"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <TextBlock Text="theme"
+                           Foreground="{DynamicResource MutedBrush}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+                <ComboBox x:Name="themeBox"
+                          Width="132"
+                          SelectedIndex="0">
+                    <ComboBoxItem Content="Neutral"/>
+                    <ComboBoxItem Content="Violet"/>
+                    <ComboBoxItem Content="Slate"/>
+                    <ComboBoxItem Content="Forest"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
 
         <TabControl Grid.Row="1" x:Name="tabs">
             <TabItem Header="Install">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Margin="18">
-                    <StackPanel>
-                        <GroupBox Header="Portable">
-                            <StackPanel>
-                                <CheckBox x:Name="chk1" Content="OBS Studio"/>
-                                <TextBlock Text="Configured portable OBS, replay buffer, startup + system tray."
-                                           Foreground="#9a9a9a" Margin="25,-4,0,7"/>
-                                <CheckBox x:Name="chk2" Content="MPV"/>
-                                <CheckBox x:Name="chk3" Content="LosslessCut"/>
-                            </StackPanel>
-                        </GroupBox>
+                        <StackPanel>
+                            <GroupBox Header="Portable">
+                                <StackPanel>
+                                    <CheckBox x:Name="chk1" Content="OBS Studio"/>
+                                    <TextBlock Text="Configured portable OBS, replay buffer, startup + system tray."
+                                               Foreground="{DynamicResource MutedBrush}"
+                                               Margin="25,-4,0,7"/>
+                                    <CheckBox x:Name="chk2" Content="MPV"/>
+                                    <CheckBox x:Name="chk3" Content="LosslessCut"/>
+                                </StackPanel>
+                            </GroupBox>
 
-                        <GroupBox Header="Applications">
-                            <StackPanel>
-                                <CheckBox x:Name="chk4" Content="Everything"/>
-                                <CheckBox x:Name="chk5" Content="Bulk Crap Uninstaller"/>
-                                <CheckBox x:Name="chk6" Content="Greenshot"/>
-                                <CheckBox x:Name="chk7" Content="Notepad++"/>
-                                <CheckBox x:Name="chk8" Content="Microsoft Office"/>
-                            </StackPanel>
-                        </GroupBox>
-                    </StackPanel>
+                            <GroupBox Header="Applications">
+                                <StackPanel>
+                                    <CheckBox x:Name="chk4" Content="Everything"/>
+                                    <CheckBox x:Name="chk5" Content="Bulk Crap Uninstaller"/>
+                                    <CheckBox x:Name="chk6" Content="Greenshot"/>
+                                    <CheckBox x:Name="chk7" Content="Notepad++"/>
+                                    <CheckBox x:Name="chk8" Content="Microsoft Office"/>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
                     </Border>
                 </ScrollViewer>
             </TabItem>
@@ -670,17 +729,17 @@ function install-redists($redists, $states, $selected) {
             <TabItem Header="Runtimes">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Margin="18">
-                    <StackPanel>
-                        <GroupBox Header="Redistributables">
-                            <StackPanel>
-                                <CheckBox x:Name="chk9" Content="Visual C++ Redistributables 2005-2026"/>
-                                <TextBlock Text="Installs the x86 and x64 runtime packages silently. x64 packages are skipped on 32-bit Windows."
-                                           TextWrapping="Wrap"
-                                           Foreground="#9a9a9a"
-                                           Margin="25,-4,0,7"/>
-                            </StackPanel>
-                        </GroupBox>
-                    </StackPanel>
+                        <StackPanel>
+                            <GroupBox Header="Redistributables">
+                                <StackPanel>
+                                    <CheckBox x:Name="chk9" Content="Visual C++ Redistributables 2005-2026"/>
+                                    <TextBlock Text="Installs the x86 and x64 runtime packages silently. x64 packages are skipped on 32-bit Windows."
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource MutedBrush}"
+                                               Margin="25,-4,0,7"/>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
                     </Border>
                 </ScrollViewer>
             </TabItem>
@@ -688,17 +747,17 @@ function install-redists($redists, $states, $selected) {
             <TabItem Header="Tools">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Margin="18">
-                    <StackPanel>
-                        <GroupBox Header="Driver Tools">
-                            <StackPanel>
-                                <CheckBox x:Name="chk10" Content="NVCleanstall 1.19.0"/>
-                                <TextBlock Text="Copies NVCleanstall to your Desktop and imports the saved previous-settings preset."
-                                           TextWrapping="Wrap"
-                                           Foreground="#9a9a9a"
-                                           Margin="25,-4,0,7"/>
-                            </StackPanel>
-                        </GroupBox>
-                    </StackPanel>
+                        <StackPanel>
+                            <GroupBox Header="Driver Tools">
+                                <StackPanel>
+                                    <CheckBox x:Name="chk10" Content="NVCleanstall 1.19.0"/>
+                                    <TextBlock Text="Copies NVCleanstall to your Desktop and imports the saved previous-settings preset."
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource MutedBrush}"
+                                               Margin="25,-4,0,7"/>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
                     </Border>
                 </ScrollViewer>
             </TabItem>
@@ -707,12 +766,13 @@ function install-redists($redists, $states, $selected) {
                 <Grid Margin="18">
                     <StackPanel VerticalAlignment="Top">
                         <TextBlock Text="Matt Files"
+                                   Foreground="{DynamicResource TextBrush}"
                                    FontSize="20"
                                    FontWeight="SemiBold"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="Windows setup utility for portable apps, common software, runtimes, and tools."
                                    TextWrapping="Wrap"
-                                   Foreground="#b0b0b0"
+                                   Foreground="{DynamicResource MutedBrush}"
                                    Margin="0,0,0,18"/>
                         <Button x:Name="githubButton"
                                 Content="Open GitHub"
@@ -723,8 +783,8 @@ function install-redists($redists, $states, $selected) {
         </TabControl>
 
         <Border Grid.Row="2"
-                Background="#000000"
-                BorderBrush="#1a1a1a"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Margin="0,16,0,0">
@@ -754,14 +814,16 @@ function install-redists($redists, $states, $selected) {
                              Minimum="0"
                              Maximum="100"
                              Height="7"
-                             Margin="4,10,4,10"/>
+                             Margin="4,10,4,10"
+                             Foreground="{DynamicResource AccentBrush}"
+                             Background="{DynamicResource Surface2Brush}"/>
 
                 <TextBox x:Name="statusBox"
                          Grid.Row="2"
                          Height="142"
-                         Background="#000000"
-                         Foreground="#ffffff"
-                         BorderBrush="#1a1a1a"
+                         Background="{DynamicResource BgBrush}"
+                         Foreground="{DynamicResource TextBrush}"
+                         BorderBrush="{DynamicResource BorderBrush}"
                          FontFamily="Consolas"
                          FontSize="12"
                          IsReadOnly="True"
@@ -786,6 +848,81 @@ $script:selectallbutton = $window.findname("selectAllButton")
 $script:clearbutton = $window.findname("clearButton")
 $script:closebutton = $window.findname("closeButton")
 $script:githubbutton = $window.findname("githubButton")
+$script:themebox = $window.findname("themeBox")
+
+$script:themes = @{
+    "Neutral" = @{
+        bg = "#000000"
+        surface = "#1a1a1a"
+        surface2 = "#292929"
+        border = "#434343"
+        text = "#fafafa"
+        muted = "#a5a5a5"
+        accent = "#767676"
+        accent2 = "#575757"
+    }
+
+    "Violet" = @{
+        bg = "#302e3d"
+        surface = "#413f57"
+        surface2 = "#585479"
+        border = "#676392"
+        text = "#f5f5f9"
+        muted = "#bbbed5"
+        accent = "#8183b0"
+        accent2 = "#706fa1"
+    }
+
+    "Slate" = @{
+        bg = "#2c3a3f"
+        surface = "#47565c"
+        surface2 = "#576b72"
+        border = "#678089"
+        text = "#f9fbfb"
+        muted = "#b4c7cc"
+        accent = "#96afb6"
+        accent2 = "#87a0a8"
+    }
+
+    "Forest" = @{
+        bg = "#03120e"
+        surface = "#112720"
+        surface2 = "#1f372d"
+        border = "#375147"
+        text = "#f9fbfa"
+        muted = "#a8b9b3"
+        accent = "#6b8079"
+        accent2 = "#4b6359"
+    }
+}
+
+function set-theme($name) {
+    if (!$script:themes.containskey($name)) {
+        return
+    }
+
+    $theme = $script:themes[$name]
+    $converter = new-object windows.media.brushconverter
+
+    $window.resources["BgBrush"] = $converter.convertfromstring($theme.bg)
+    $window.resources["SurfaceBrush"] = $converter.convertfromstring($theme.surface)
+    $window.resources["Surface2Brush"] = $converter.convertfromstring($theme.surface2)
+    $window.resources["BorderBrush"] = $converter.convertfromstring($theme.border)
+    $window.resources["TextBrush"] = $converter.convertfromstring($theme.text)
+    $window.resources["MutedBrush"] = $converter.convertfromstring($theme.muted)
+    $window.resources["AccentBrush"] = $converter.convertfromstring($theme.accent)
+    $window.resources["Accent2Brush"] = $converter.convertfromstring($theme.accent2)
+}
+
+$script:themebox.add_selectionchanged({
+    $item = $script:themebox.selecteditem
+
+    if ($item -and $item.content) {
+        set-theme ([string]$item.content)
+    }
+})
+
+set-theme "Neutral"
 
 $script:checkboxes = @{}
 
