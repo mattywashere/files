@@ -118,29 +118,32 @@ function show-status($states, $selected, $message = "") {
     $script:statusbox.text = $lines -join "`r`n"
     $script:statusbox.scrolltoend()
 
-    if ($selected.count) {
-        $script:progress.value = [math]::round(($finished / $selected.count) * 100)
-    }
-    else {
-        $script:progress.value = 0
+    if (!$script:progress.isindeterminate) {
+        if ($selected.count) {
+            $script:progress.value = [math]::round(($finished / $selected.count) * 100)
+        }
+        else {
+            $script:progress.value = 0
+        }
     }
 
     do-events
 }
 
 
-function set-download-speed($mbps) {
+function set-download-speed($mbps, $bytes = 0, $active = $false) {
     if (!$script:speedtext) {
         return
     }
 
-    if ($null -eq $mbps) {
-        $script:speedtext.text = ""
-        $script:speedtext.visibility = "Collapsed"
+    if ($active) {
+        $received = $bytes / 1000000
+        $script:speedtext.text = ("Download speed: {0:N2} MB/s   |   {1:N1} MB received" -f $mbps, $received)
+        $script:progress.isindeterminate = $true
     }
     else {
-        $script:speedtext.text = ("{0:N2} MB/s" -f $mbps)
-        $script:speedtext.visibility = "Visible"
+        $script:speedtext.text = "Download speed: -- MB/s"
+        $script:progress.isindeterminate = $false
     }
 
     do-events
@@ -176,7 +179,7 @@ function download-parallel($downloads, $states, $selected) {
     $lastsample = [datetime]::utcnow
     [double]$smoothedspeed = 0
 
-    set-download-speed 0
+    set-download-speed 0 0 $true
 
     try {
         foreach ($download in $downloads) {
@@ -260,7 +263,7 @@ function download-parallel($downloads, $states, $selected) {
                     $smoothedspeed = ($smoothedspeed * 0.65) + ($instant * 0.35)
                 }
 
-                set-download-speed $smoothedspeed
+                set-download-speed $smoothedspeed $bytes $true
                 $lastbytes = $bytes
                 $lastsample = $now
             }
@@ -325,11 +328,11 @@ function download-parallel($downloads, $states, $selected) {
         }
 
         show-status $states $selected "downloads complete"
-        set-download-speed $null
+        set-download-speed 0 0 $false
         return $status
     }
     finally {
-        set-download-speed $null
+        set-download-speed 0 0 $false
 
         if ($jobs.count) {
             $jobs | remove-job -force -erroraction silentlycontinue
@@ -874,20 +877,19 @@ function install-redists($redists, $states, $selected) {
 
                 <TextBlock x:Name="speedText"
                            Grid.Row="1"
-                           Text=""
+                           Text="Download speed: -- MB/s"
                            HorizontalAlignment="Center"
-                           Foreground="{DynamicResource MutedBrush}"
+                           Foreground="{DynamicResource TextBrush}"
                            FontFamily="Consolas"
-                           FontSize="12"
-                           FontWeight="SemiBold"
-                           Margin="0,8,0,2"
-                           Visibility="Collapsed"/>
+                           FontSize="16"
+                           FontWeight="Bold"
+                           Margin="0,10,0,4"/>
 
                 <ProgressBar x:Name="progress"
                              Grid.Row="2"
                              Minimum="0"
                              Maximum="100"
-                             Height="7"
+                             Height="10"
                              Margin="4,4,4,10"
                              Foreground="{DynamicResource AccentBrush}"
                              Background="{DynamicResource Surface2Brush}"/>
@@ -1018,7 +1020,7 @@ function set-ui-enabled($enabled) {
 }
 
 function set-final-summary($selected, $states, $failed) {
-    set-download-speed $null
+    set-download-speed 0 0 $false
     $lines = new-object collections.generic.list[string]
 
     if ($failed.count) {
@@ -1085,6 +1087,7 @@ function set-final-summary($selected, $states, $failed) {
 
     $script:statusbox.text = $lines -join "`r`n"
     $script:statusbox.scrolltoend()
+    $script:progress.isindeterminate = $false
     $script:progress.value = 100
     do-events
 }
@@ -1093,7 +1096,7 @@ function invoke-install($selected) {
     $script:downloaderrors = @{}
     $script:installerrors = @{}
     $script:locations = @{}
-    set-download-speed $null
+    set-download-speed 0 0 $false
 
     $states = @{}
     $failed = @()
