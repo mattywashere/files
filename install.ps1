@@ -685,7 +685,7 @@ function install-redists($redists, $states, $selected) {
             </TabItem>
 
             <TabItem Header="About">
-                <Grid Padding="18">
+                <Grid Margin="18">
                     <StackPanel VerticalAlignment="Top">
                         <TextBlock Text="Matt Files"
                                    FontSize="20"
