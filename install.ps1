@@ -1,8 +1,7 @@
 $erroractionpreference = "stop"
 $progresspreference = "silentlycontinue"
 
-$url = "https://raw.githubusercontent.com/mattywashere/files/main/install.ps1"
-
+$url = "https://raw.githubusercontent.com/mattywashere/files/main/install.ps1?cache=$([guid]::newguid().tostring())"
 $command = "irm '$url' | iex"
 $encoded = [convert]::tobase64string([text.encoding]::unicode.getbytes($command))
 
