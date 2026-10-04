@@ -555,14 +555,14 @@ function install-redists($redists, $states, $selected) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="files - gui v2"
+        Title="files - black gui"
         Width="920"
         Height="700"
         MinWidth="760"
         MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        Background="#0f1115"
-        Foreground="#f3f4f6"
+        Background="#000000"
+        Foreground="#ffffff"
         FontFamily="Segoe UI">
     <Window.Resources>
         <Style TargetType="TabControl">
@@ -571,10 +571,28 @@ function install-redists($redists, $states, $selected) {
         </Style>
 
         <Style TargetType="TabItem">
-            <Setter Property="Foreground" Value="#c9ced6"/>
-            <Setter Property="Background" Value="#171a20"/>
-            <Setter Property="Margin" Value="0,0,2,0"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="Background" Value="#000000"/>
+            <Setter Property="BorderBrush" Value="#000000"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
             <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Background="#000000"
+                                BorderBrush="#000000"
+                                BorderThickness="0"
+                                Margin="0">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="10,8"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="CheckBox">
@@ -615,7 +633,7 @@ function install-redists($redists, $states, $selected) {
         <StackPanel Grid.Row="0" Margin="2,0,2,16">
             <TextBlock Text="files" FontSize="26" FontWeight="SemiBold"/>
             <TextBlock Text="select what you want, then install it in one pass"
-                       Foreground="#8d96a5"
+                       Foreground="#9a9a9a"
                        FontSize="13"
                        Margin="0,4,0,0"/>
         </StackPanel>
@@ -629,7 +647,7 @@ function install-redists($redists, $states, $selected) {
                             <StackPanel>
                                 <CheckBox x:Name="chk1" Content="OBS Studio"/>
                                 <TextBlock Text="Configured portable OBS, replay buffer, startup + system tray."
-                                           Foreground="#8d96a5" Margin="25,-4,0,7"/>
+                                           Foreground="#9a9a9a" Margin="25,-4,0,7"/>
                                 <CheckBox x:Name="chk2" Content="MPV"/>
                                 <CheckBox x:Name="chk3" Content="LosslessCut"/>
                             </StackPanel>
@@ -658,7 +676,7 @@ function install-redists($redists, $states, $selected) {
                                 <CheckBox x:Name="chk9" Content="Visual C++ Redistributables 2005-2026"/>
                                 <TextBlock Text="Installs the x86 and x64 runtime packages silently. x64 packages are skipped on 32-bit Windows."
                                            TextWrapping="Wrap"
-                                           Foreground="#8d96a5"
+                                           Foreground="#9a9a9a"
                                            Margin="25,-4,0,7"/>
                             </StackPanel>
                         </GroupBox>
@@ -676,7 +694,7 @@ function install-redists($redists, $states, $selected) {
                                 <CheckBox x:Name="chk10" Content="NVCleanstall 1.19.0"/>
                                 <TextBlock Text="Copies NVCleanstall to your Desktop and imports the saved previous-settings preset."
                                            TextWrapping="Wrap"
-                                           Foreground="#8d96a5"
+                                           Foreground="#9a9a9a"
                                            Margin="25,-4,0,7"/>
                             </StackPanel>
                         </GroupBox>
@@ -694,7 +712,7 @@ function install-redists($redists, $states, $selected) {
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="Windows setup utility for portable apps, common software, runtimes, and tools."
                                    TextWrapping="Wrap"
-                                   Foreground="#a6aebb"
+                                   Foreground="#b0b0b0"
                                    Margin="0,0,0,18"/>
                         <Button x:Name="githubButton"
                                 Content="Open GitHub"
@@ -705,8 +723,8 @@ function install-redists($redists, $states, $selected) {
         </TabControl>
 
         <Border Grid.Row="2"
-                Background="#15181e"
-                BorderBrush="#2a2f38"
+                Background="#000000"
+                BorderBrush="#1a1a1a"
                 BorderThickness="1"
                 CornerRadius="6"
                 Margin="0,16,0,0">
@@ -741,16 +759,16 @@ function install-redists($redists, $states, $selected) {
                 <TextBox x:Name="statusBox"
                          Grid.Row="2"
                          Height="142"
-                         Background="#0c0e12"
-                         Foreground="#d7dce4"
-                         BorderBrush="#2a2f38"
+                         Background="#000000"
+                         Foreground="#ffffff"
+                         BorderBrush="#1a1a1a"
                          FontFamily="Consolas"
                          FontSize="12"
                          IsReadOnly="True"
                          TextWrapping="NoWrap"
                          VerticalScrollBarVisibility="Auto"
                          HorizontalScrollBarVisibility="Auto"
-                         Text="ready - gui v2. select one or more items, then click install selected."/>
+                         Text="ready. select one or more items, then click install selected."/>
             </Grid>
         </Border>
     </Grid>
