@@ -40,6 +40,7 @@ $names = @{
     7 = "notepad++"
     8 = "office"
     9 = "visual c++ redistributables"
+    10 = "nvcleanstall"
 }
 
 function get-width {
@@ -80,6 +81,9 @@ function show-menu {
     write-host ""
     write-host "runtimes"
     write-host "  [9] visual c++ redistributables (2005-2026)"
+    write-host ""
+    write-host "tools"
+    write-host "  [10] nvcleanstall"
     write-host ""
     write-rule
     write-host "[a] all    [q] quit"
@@ -470,6 +474,36 @@ function install-office($states, $selected) {
 }
 
 
+function install-nvcleanstall($states, $selected) {
+    $states[10] = "configuring"
+    show-status $states $selected "setting up nvcleanstall..."
+
+    $source = join-path $temp "NVCleanstall_1.19.0.exe"
+    $settings = join-path $temp "nvcleanstall-settings.reg"
+    $desktop = [environment]::getfolderpath("desktop")
+    $target = join-path $desktop "NVCleanstall_1.19.0.exe"
+
+    if (!(test-path -literalpath $source)) {
+        throw "nvcleanstall executable was not downloaded"
+    }
+
+    if (!(test-path -literalpath $settings)) {
+        throw "nvcleanstall settings were not downloaded"
+    }
+
+    & reg.exe import $settings *> $null
+
+    if ($lastexitcode -ne 0) {
+        throw "failed to import nvcleanstall settings"
+    }
+
+    [io.file]::copy($source, $target, $true)
+
+    $script:locations[10] = $target
+    $states[10] = "done"
+    show-status $states $selected "installing selected apps..."
+}
+
 function install-redists($redists, $states, $selected) {
     $items = @(
         $redists | where-object {
@@ -512,13 +546,13 @@ if ($choice -eq "q") {
 }
 
 if ($choice -eq "a") {
-    $selected = 1..9
+    $selected = 1..10
 }
 else {
     $selected = @(
         $choice -split "," |
         foreach-object { $_.trim() } |
-        where-object { $_ -match "^[1-9]$" } |
+        where-object { $_ -match "^(?:[1-9]|10)$" } |
         foreach-object { [int]$_ } |
         sort-object -unique
     )
@@ -546,6 +580,24 @@ try {
     show-status $states $selected "preparing..."
 
     $redists = @()
+
+    if ($selected -contains 10) {
+        $states[10] = "downloading"
+
+        $downloads += [pscustomobject]@{
+            number = $null
+            name = "nvcleanstall-exe"
+            url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/NVCleanstall_1.19.0.exe"
+            path = (join-path $temp "NVCleanstall_1.19.0.exe")
+        }
+
+        $downloads += [pscustomobject]@{
+            number = $null
+            name = "nvcleanstall-settings"
+            url = "https://raw.githubusercontent.com/mattywashere/files/main/nvcleanstall/settings.reg"
+            path = (join-path $temp "nvcleanstall-settings.reg")
+        }
+    }
 
     if ($selected -contains 9) {
         $redisttemp = join-path $temp "redist"
@@ -650,6 +702,16 @@ try {
         }
     }
 
+    if ($selected -contains 10) {
+        if ($downloadstatus["nvcleanstall-exe"] -and $downloadstatus["nvcleanstall-settings"]) {
+            $states[10] = "downloaded"
+        }
+        else {
+            $states[10] = "failed"
+            $failed += 10
+        }
+    }
+
     if ($selected -contains 9) {
         $redistok = $true
 
@@ -702,6 +764,18 @@ try {
                 $failed += $number
             }
 
+            show-status $states $selected "installing selected apps..."
+        }
+    }
+
+    if (($selected -contains 10) -and ($failed -notcontains 10)) {
+        try {
+            install-nvcleanstall $states $selected
+        }
+        catch {
+            $states[10] = "failed"
+            $script:installerrors["nvcleanstall"] = $_.exception.message
+            $failed += 10
             show-status $states $selected "installing selected apps..."
         }
     }
@@ -834,6 +908,13 @@ if (($selected -contains 1) -and ($states[1] -eq "done")) {
     write-host "obs note"
     write-host "  obs is running in the system tray."
     write-host "  obs will start automatically every time you sign in to windows."
+}
+
+if (($selected -contains 10) -and ($states[10] -eq "done")) {
+    write-host ""
+    write-host "nvcleanstall note"
+    write-host "  your saved tweak preset has been imported."
+    write-host "  click 'use previous settings' in nvcleanstall to load it."
 }
 
 write-host ""
