@@ -491,10 +491,13 @@ function install-nvcleanstall($states, $selected) {
         throw "nvcleanstall settings were not downloaded"
     }
 
-    & reg.exe import $settings *> $null
+    $reg = start-process reg.exe -argumentlist @(
+        "import"
+        "`"$settings`""
+    ) -wait -passthru -windowstyle hidden
 
-    if ($lastexitcode -ne 0) {
-        throw "failed to import nvcleanstall settings"
+    if ($reg.exitcode -ne 0) {
+        throw "failed to import nvcleanstall settings (exit code $($reg.exitcode))"
     }
 
     [io.file]::copy($source, $target, $true)
